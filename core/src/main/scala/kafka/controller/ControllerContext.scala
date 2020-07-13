@@ -6,7 +6,7 @@
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
  *
- *    http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -32,14 +32,14 @@ object ReplicaAssignment {
 
 
 /**
- * @param replicas the sequence of brokers assigned to the partition. It includes the set of brokers
- *                 that were added (`addingReplicas`) and removed (`removingReplicas`).
- * @param addingReplicas the replicas that are being added if there is a pending reassignment
+ * @param replicas         the sequence of brokers assigned to the partition. It includes the set of brokers
+ *                         that were added (`addingReplicas`) and removed (`removingReplicas`).
+ * @param addingReplicas   the replicas that are being added if there is a pending reassignment
  * @param removingReplicas the replicas that are being removed if there is a pending reassignment
  */
-case class ReplicaAssignment private (replicas: Seq[Int],
-                                      addingReplicas: Seq[Int],
-                                      removingReplicas: Seq[Int]) {
+case class ReplicaAssignment private(replicas: Seq[Int],
+                                     addingReplicas: Seq[Int],
+                                     removingReplicas: Seq[Int]) {
 
   lazy val originReplicas: Seq[Int] = replicas.diff(addingReplicas)
   lazy val targetReplicas: Seq[Int] = replicas.diff(removingReplicas)
@@ -72,23 +72,37 @@ case class ReplicaAssignment private (replicas: Seq[Int],
 }
 
 class ControllerContext {
+  // controller 统计信息
   val stats = new ControllerStats
+  // 离线分区计数器
   var offlinePartitionCount = 0
-  var preferredReplicaImbalanceCount = 0
+  // 关闭中的 broker id 列表
   val shuttingDownBrokerIds = mutable.Set.empty[Int]
+  // 当前运行中的 broker 对象列表
   private val liveBrokers = mutable.Set.empty[Broker]
+
+  var preferredReplicaImbalanceCount = 0
+  // 运行中Broker Epoch列表
   private val liveBrokerEpochs = mutable.Map.empty[Int, Long]
+  // Controller当前Epoch值
   var epoch: Int = KafkaController.InitialControllerEpoch
+  // Controller对应ZooKeeper节点的Epoch值
   var epochZkVersion: Int = KafkaController.InitialControllerEpochZkVersion
-
+  // 所有主题
   val allTopics = mutable.Set.empty[String]
+  // 主题分区的副本列表
   val partitionAssignments = mutable.Map.empty[String, mutable.Map[Int, ReplicaAssignment]]
+  // 主题分区的 leader/ISR 副本信息
   private val partitionLeadershipInfo = mutable.Map.empty[TopicPartition, LeaderIsrAndControllerEpoch]
+  // 正在副本重分配过程的主题分区列表
   val partitionsBeingReassigned = mutable.Set.empty[TopicPartition]
+  // 主题分区状态列表
   val partitionStates = mutable.Map.empty[TopicPartition, PartitionState]
+  // 主题分区的副本状态列表
   val replicaStates = mutable.Map.empty[PartitionAndReplica, ReplicaState]
+  // 不可用磁盘路径上的副本列表
   val replicasOnOfflineDirs = mutable.Map.empty[Int, Set[TopicPartition]]
-
+  // 待删除主题列表
   val topicsToBeDeleted = mutable.Set.empty[String]
 
   /** The following topicsWithDeletionStarted variable is used to properly update the offlinePartitionCount metric.
@@ -110,7 +124,9 @@ class ControllerContext {
    * NonExistentPartition state. Once a topic is in the topicsWithDeletionStarted set, we will stop monitoring
    * its partition state changes in the offlinePartitionCount metric
    */
+  // 已开启删除的主题列表
   val topicsWithDeletionStarted = mutable.Set.empty[String]
+  // 暂时无法执行删除的主题列表
   val topicsIneligibleForDeletion = mutable.Set.empty[String]
 
   private def clearTopicsState(): Unit = {
@@ -145,13 +161,13 @@ class ControllerContext {
       Some(newAssignment), leadershipInfo)
   }
 
-  def partitionReplicaAssignmentForTopic(topic : String): Map[TopicPartition, Seq[Int]] = {
+  def partitionReplicaAssignmentForTopic(topic: String): Map[TopicPartition, Seq[Int]] = {
     partitionAssignments.getOrElse(topic, Map.empty).map {
       case (partition, assignment) => (new TopicPartition(topic, partition), assignment.replicas)
     }.toMap
   }
 
-  def partitionFullReplicaAssignmentForTopic(topic : String): Map[TopicPartition, ReplicaAssignment] = {
+  def partitionFullReplicaAssignmentForTopic(topic: String): Map[TopicPartition, ReplicaAssignment] = {
     partitionAssignments.getOrElse(topic, Map.empty).map {
       case (partition, assignment) => (new TopicPartition(topic, partition), assignment)
     }.toMap
@@ -192,9 +208,13 @@ class ControllerContext {
 
   // getter
   def liveBrokerIds: Set[Int] = liveBrokerEpochs.keySet.diff(shuttingDownBrokerIds)
+
   def liveOrShuttingDownBrokerIds: Set[Int] = liveBrokerEpochs.keySet
+
   def liveOrShuttingDownBrokers: Set[Broker] = liveBrokers
+
   def liveBrokerIdAndEpochs: Map[Int, Long] = liveBrokerEpochs
+
   def liveOrShuttingDownBroker(brokerId: Int): Option[Broker] = liveOrShuttingDownBrokers.find(_.id == brokerId)
 
   def partitionsOnBroker(brokerId: Int): Set[TopicPartition] = {
@@ -241,10 +261,10 @@ class ControllerContext {
   }
 
   /**
-    * Get all online and offline replicas.
-    *
-    * @return a tuple consisting of first the online replicas and followed by the offline replicas
-    */
+   * Get all online and offline replicas.
+   *
+   * @return a tuple consisting of first the online replicas and followed by the offline replicas
+   */
   def onlineAndOfflineReplicas: (Set[PartitionAndReplica], Set[PartitionAndReplica]) = {
     val onlineReplicas = mutable.Set.empty[PartitionAndReplica]
     val offlineReplicas = mutable.Set.empty[PartitionAndReplica]
@@ -476,9 +496,9 @@ class ControllerContext {
                                  leadershipInfo: LeaderIsrAndControllerEpoch): Boolean = {
     val preferredReplica = replicaAssignment.replicas.head
     if (replicaAssignment.isBeingReassigned && replicaAssignment.addingReplicas.contains(preferredReplica))
-      // reassigning partitions are not counted as imbalanced until the new replica joins the ISR (completes reassignment)
-      !leadershipInfo.leaderAndIsr.isr.contains(preferredReplica)
-    else
+    // reassigning partitions are not counted as imbalanced until the new replica joins the ISR (completes reassignment)
+    !leadershipInfo.leaderAndIsr.isr.contains(preferredReplica)
+      else
       leadershipInfo.leaderAndIsr.leader == preferredReplica
   }
 
