@@ -1,3 +1,7 @@
+> 此部分代码 clone 自 2020.07.12 的 [kafka](https://github.com/apache/kafka/) 项目 trunk 分支
+>
+> 并基于该代码做了一些代码分析和解读
+
 Apache Kafka
 =================
 See our [web site](https://kafka.apache.org) for details on the project.
