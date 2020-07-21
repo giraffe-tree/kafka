@@ -36,6 +36,18 @@ import scala.jdk.CollectionConverters._
 import scala.math._
 
 /**
+ * 层次结构说明如下
+ * 第一层:
+ * log
+ * 第二层:
+ * log segment
+ * 第三层:
+ * .log 消息日志文件
+ * .index 位移索引文件
+ * .timeindex 时间索引文件
+ * .txnindex 已中止事务索引文件
+ *
+ *
  * A segment of the log.
  * 日志段
  * Each segment has two components: a log and an index.

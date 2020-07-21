@@ -60,23 +60,23 @@ class GroupMetadataManager(brokerId: Int,
                            zkClient: KafkaZkClient,
                            time: Time,
                            metrics: Metrics) extends Logging with KafkaMetricsGroup {
-
+  // 向位移主题写入消息时, 执行压缩的类型
   private val compressionType: CompressionType = CompressionType.forId(config.offsetsTopicCompressionCodec.codec)
-
+  // 消费者组元数据容器，保存Broker管理的所有消费者组的数据
   private val groupMetadataCache = new Pool[String, GroupMetadata]
 
   /* lock protecting access to loading and owned partition sets */
   private val partitionLock = new ReentrantLock()
-
+  // 位移主题下正在执行加载操作的分区
   /* partitions of consumer groups that are being loaded, its lock should be always called BEFORE the group lock if needed */
   private val loadingPartitions: mutable.Set[Int] = mutable.Set()
-
+  // 位移主题下完成加载操作的分区
   /* partitions of consumer groups that are assigned, using the same loading partition lock */
   private val ownedPartitions: mutable.Set[Int] = mutable.Set()
 
   /* shutting down flag */
   private val shuttingDown = new AtomicBoolean(false)
-
+  // 位移主题总分区数
   /* number of partitions for the consumer metadata topic */
   private val groupMetadataTopicPartitionCount = getGroupMetadataTopicPartitionCount
 

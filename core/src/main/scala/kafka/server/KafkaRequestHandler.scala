@@ -6,7 +6,7 @@
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
  *
- *    http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -93,13 +93,24 @@ class KafkaRequestHandler(id: Int,
 
 }
 
+/**
+ * IO 线程池, 用于执行真正的请求逻辑
+ *
+ * @param brokerId
+ * @param requestChannel
+ * @param apis
+ * @param time
+ * @param numThreads
+ * @param requestHandlerAvgIdleMetricName
+ * @param logAndThreadNamePrefix
+ */
 class KafkaRequestHandlerPool(val brokerId: Int,
                               val requestChannel: RequestChannel,
                               val apis: KafkaApis,
                               time: Time,
                               numThreads: Int,
                               requestHandlerAvgIdleMetricName: String,
-                              logAndThreadNamePrefix : String) extends Logging with KafkaMetricsGroup {
+                              logAndThreadNamePrefix: String) extends Logging with KafkaMetricsGroup {
 
   private val threadPoolSize: AtomicInteger = new AtomicInteger(numThreads)
   /* a meter to track the average free capacity of the request handlers */
@@ -173,7 +184,7 @@ class BrokerTopicMetrics(name: Option[String]) extends KafkaMetricsGroup {
     }
 
     if (tags.isEmpty) // greedily initialize the general topic metrics
-      meter()
+    meter()
   }
 
   // an internal map for "lazy initialization" of certain metrics
@@ -283,6 +294,7 @@ object BrokerTopicStats {
 }
 
 class BrokerTopicStats {
+
   import BrokerTopicStats._
 
   private val stats = new Pool[String, BrokerTopicMetrics](Some(valueFactory))
