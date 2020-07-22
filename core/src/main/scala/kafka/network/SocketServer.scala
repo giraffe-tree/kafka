@@ -1013,7 +1013,11 @@ private[kafka] class Processor(val id: Int,
                   }
                 }
                 // 核心代码：将Request添加到Request队列
-                // TODO: 为什么没有加锁?
+                // RESOLVED: 为什么这里没有加锁? ArrayBlockingQueue 中 put 方法里用了可重入锁
+                // 为什么只用一个 request 队列 ?
+                // 1. 个人感觉 单个 request 队列并不是性能的瓶颈, 瓶颈在 IO , 在发送 response 的时候
+                // 2. 另外有一点在评论去提到的(https://time.geekbang.org/column/article/231139) :
+                //    Request队列线程共享，这样不同线程的workload才不会发生倾斜，不然可能会发生一边的线程空闲，一边的线程队列满
                 requestChannel.sendRequest(req)
                 selector.mute(connectionId)
                 handleChannelMuteEvent(connectionId, ChannelMuteEvent.REQUEST_RECEIVED)
