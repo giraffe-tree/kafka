@@ -695,6 +695,7 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
    */
   private def accept(key: SelectionKey): Option[SocketChannel] = {
     val serverSocketChannel = key.channel().asInstanceOf[ServerSocketChannel]
+    // 尝试直接连接, 如果
     val socketChannel = serverSocketChannel.accept()
     try {
       connectionQuotas.inc(endPoint.listenerName, socketChannel.socket.getInetAddress, blockedPercentMeter)
@@ -970,6 +971,10 @@ private[kafka] class Processor(val id: Int,
     }
   }
 
+  /**
+   * Processor 从底层 Socket 通道不断读取已接收到的网络请求，然后转换成 Request 实例，并将其放入到 Request 队列
+   * 处理已经放入 completedReceives 中的请求
+   */
   private def processCompletedReceives(): Unit = {
     // 遍历所有已接收的Request
     selector.completedReceives.forEach { receive =>
@@ -977,6 +982,7 @@ private[kafka] class Processor(val id: Int,
         // 保证对应连接通道已经建立
         openOrClosingChannel(receive.source) match {
           case Some(channel) =>
+            // 解析头部
             val header = RequestHeader.parse(receive.payload)
             if (header.apiKey == ApiKeys.SASL_HANDSHAKE && channel.maybeBeginServerReauthentication(receive,
               () => time.nanoseconds()))
@@ -1007,6 +1013,7 @@ private[kafka] class Processor(val id: Int,
                   }
                 }
                 // 核心代码：将Request添加到Request队列
+                // TODO: 为什么没有加锁?
                 requestChannel.sendRequest(req)
                 selector.mute(connectionId)
                 handleChannelMuteEvent(connectionId, ChannelMuteEvent.REQUEST_RECEIVED)

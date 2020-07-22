@@ -75,6 +75,9 @@ object RequestChannel extends Logging {
     }
   }
 
+  /**
+   * TODO: 可能导致 false sharing ?
+   */
   class Request(val processor: Int,
                 val context: RequestContext,
                 val startTimeNanos: Long,

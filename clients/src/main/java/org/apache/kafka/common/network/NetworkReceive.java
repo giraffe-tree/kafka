@@ -89,6 +89,9 @@ public class NetworkReceive implements Receive {
         return !size.hasRemaining() && buffer != null && !buffer.hasRemaining();
     }
 
+    /**
+     * 反序列化
+     */
     public long readFrom(ScatteringByteChannel channel) throws IOException {
         int read = 0;
         if (size.hasRemaining()) {
@@ -96,7 +99,9 @@ public class NetworkReceive implements Receive {
             if (bytesRead < 0)
                 throw new EOFException();
             read += bytesRead;
+            // 如果 buffer 已经满了
             if (!size.hasRemaining()) {
+                // 将 position 置为0, 方便读=.=
                 size.rewind();
                 int receiveSize = size.getInt();
                 if (receiveSize < 0)
