@@ -310,6 +310,7 @@ public class Selector implements Selectable, AutoCloseable {
      */
     public void register(String id, SocketChannel socketChannel) throws IOException {
         ensureNotRegistered(id);
+        // 入口
         registerChannel(id, socketChannel, SelectionKey.OP_READ);
         this.sensors.connectionCreated.record();
         // Default to empty client information as the ApiVersionsRequest is not
@@ -327,6 +328,7 @@ public class Selector implements Selectable, AutoCloseable {
     }
 
     protected SelectionKey registerChannel(String id, SocketChannel socketChannel, int interestedOps) throws IOException {
+        // 注册感兴趣的事件
         SelectionKey key = socketChannel.register(nioSelector, interestedOps);
         KafkaChannel channel = buildAndAttachKafkaChannel(socketChannel, id, key);
         this.channels.put(id, channel);
@@ -473,6 +475,7 @@ public class Selector implements Selectable, AutoCloseable {
         this.sensors.selectTime.record(endSelect - startSelect, time.milliseconds());
 
         if (numReadyKeys > 0 || !immediatelyConnectedKeys.isEmpty() || dataInBuffers) {
+            // selector 获取已经就绪的事件
             Set<SelectionKey> readyKeys = this.nioSelector.selectedKeys();
 
             // Poll from channels that have buffered data (but nothing more from the underlying socket)
@@ -480,6 +483,8 @@ public class Selector implements Selectable, AutoCloseable {
                 keysWithBufferedRead.removeAll(readyKeys); //so no channel gets polled twice
                 Set<SelectionKey> toPoll = keysWithBufferedRead;
                 keysWithBufferedRead = new HashSet<>(); //poll() calls will repopulate if needed
+
+                // 入口
                 pollSelectionKeys(toPoll, false, endSelect);
             }
 
@@ -507,6 +512,7 @@ public class Selector implements Selectable, AutoCloseable {
 
     /**
      * handle any ready I/O on a set of selection keys
+     * 读取 channel 中的数据, 组合成 NetworkReceive,  放进 completedReceives
      *
      * @param selectionKeys          set of keys to handle
      * @param isImmediatelyConnected true if running over a set of keys for just-connected sockets
@@ -581,6 +587,8 @@ public class Selector implements Selectable, AutoCloseable {
                 //previous completed receive then read from it
                 if (channel.ready() && (key.isReadable() || channel.hasBytesBuffered()) && !hasCompletedReceive(channel)
                         && !explicitlyMutedChannels.contains(channel)) {
+                    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 读取 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                    // 读取内容, 放入 completedReceives 中
                     attemptRead(channel);
                 }
 

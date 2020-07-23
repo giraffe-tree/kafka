@@ -622,7 +622,6 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
               try {
                 val key = iter.next
                 iter.remove()
-
                 if (key.isAcceptable) {
                   accept(key).foreach { socketChannel =>
                     // Assign the channel to the next processor (using round-robin) to which the
@@ -695,7 +694,7 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
    */
   private def accept(key: SelectionKey): Option[SocketChannel] = {
     val serverSocketChannel = key.channel().asInstanceOf[ServerSocketChannel]
-    // 尝试直接连接, 如果
+    // 尝试直接连接, 如果为非阻塞 IO 则会立即返回
     val socketChannel = serverSocketChannel.accept()
     try {
       connectionQuotas.inc(endPoint.listenerName, socketChannel.socket.getInetAddress, blockedPercentMeter)
@@ -890,10 +889,14 @@ private[kafka] class Processor(val id: Int,
     processException(errorMessage, throwable)
   }
 
+  /**
+   * 从 responseQueue 中拉取一个 response 发送,
+   * 发送完成将其放入 inflightResponses
+   */
   private def processNewResponses(): Unit = {
     var currentResponse: RequestChannel.Response = null
     while ( {
-      // Response队列中存在待处理Response
+      // 拉取一个 response, 如果Response队列中存在待处理Response, 则继续执行
       currentResponse = dequeueResponse();
       currentResponse != null
     }) {
@@ -974,6 +977,7 @@ private[kafka] class Processor(val id: Int,
   /**
    * Processor 从底层 Socket 通道不断读取已接收到的网络请求，然后转换成 Request 实例，并将其放入到 Request 队列
    * 处理已经放入 completedReceives 中的请求
+   * 将 NetworkReceive 封装成 RequestChannel.Request , 并放入 共享的 request 队列中
    */
   private def processCompletedReceives(): Unit = {
     // 遍历所有已接收的Request
@@ -1038,7 +1042,8 @@ private[kafka] class Processor(val id: Int,
   }
 
   /**
-   * 负责处理 Response 的回调逻辑。
+   * 负责处理 Response 的回调逻辑
+   * 取出 inflightResponses 的 response 进行回调处理
    */
   private def processCompletedSends(): Unit = {
     selector.completedSends.forEach { send =>
@@ -1160,7 +1165,7 @@ private[kafka] class Processor(val id: Int,
       try {
         debug(s"Processor $id listening to new connection from ${channel.socket.getRemoteSocketAddress}")
         // 用给定Selector注册该Channel
-        // 即 registerChannel(id, socketChannel, SelectionKey.OP_READ)
+        // 即 registerChannel(id, socketChannel, SelectionKey.OP_READ) 注册 OP_READ 事件
         selector.register(connectionId(channel.socket), channel)
         // 更新计数器
         connectionsProcessed += 1
