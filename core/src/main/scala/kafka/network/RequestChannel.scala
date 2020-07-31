@@ -6,7 +6,7 @@
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
  *
- *    http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -53,6 +53,7 @@ object RequestChannel extends Logging {
   def isRequestLoggingEnabled: Boolean = requestLogger.underlying.isDebugEnabled
 
   sealed trait BaseRequest
+
   case object ShutdownRequest extends BaseRequest
 
   case class Session(principal: KafkaPrincipal, clientAddress: InetAddress) {
@@ -64,14 +65,14 @@ object RequestChannel extends Logging {
     private val metricsMap = mutable.Map[String, RequestMetrics]()
 
     (ApiKeys.values.toSeq.map(_.name) ++
-        Seq(RequestMetrics.consumerFetchMetricName, RequestMetrics.followFetchMetricName)).foreach { name =>
+      Seq(RequestMetrics.consumerFetchMetricName, RequestMetrics.followFetchMetricName)).foreach { name =>
       metricsMap.put(name, new RequestMetrics(name))
     }
 
     def apply(metricName: String) = metricsMap(metricName)
 
     def close(): Unit = {
-       metricsMap.values.foreach(_.removeMetrics())
+      metricsMap.values.foreach(_.removeMetrics())
     }
   }
 
@@ -99,6 +100,7 @@ object RequestChannel extends Logging {
     private val bodyAndSize: RequestAndSize = context.parseRequest(buffer)
 
     def header: RequestHeader = context.header
+
     def sizeOfBodyInBytes: Int = bodyAndSize.size
 
     //most request types are parsed entirely into objects at this point. for those we can release the underlying buffer.
@@ -134,7 +136,7 @@ object RequestChannel extends Logging {
         case alterConfigs: AlterConfigsRequest =>
           val loggableConfigs = alterConfigs.configs().asScala.map { case (resource, config) =>
             val loggableEntries = new AlterConfigsRequest.Config(config.entries.asScala.map { entry =>
-                new AlterConfigsRequest.ConfigEntry(entry.name, loggableValue(resource.`type`, entry.name, entry.value))
+              new AlterConfigsRequest.ConfigEntry(entry.name, loggableValue(resource.`type`, entry.name, entry.value))
             }.asJavaCollection)
             (resource, loggableEntries)
           }.asJava
@@ -310,10 +312,13 @@ object RequestChannel extends Logging {
     override def toString: String =
       s"Response(type=EndThrottling, request=$request)"
   }
+
 }
 
-class RequestChannel(val queueSize: Int, val metricNamePrefix : String, time: Time) extends KafkaMetricsGroup {
+class RequestChannel(val queueSize: Int, val metricNamePrefix: String, time: Time) extends KafkaMetricsGroup {
+
   import RequestChannel._
+
   val metrics = new RequestChannel.Metrics
   private val requestQueue = new ArrayBlockingQueue[BaseRequest](queueSize)
   private val processors = new ConcurrentHashMap[Int, Processor]()
@@ -323,7 +328,7 @@ class RequestChannel(val queueSize: Int, val metricNamePrefix : String, time: Ti
   newGauge(requestQueueSizeMetricName, () => requestQueue.size)
 
   newGauge(responseQueueSizeMetricName, () => {
-    processors.values.asScala.foldLeft(0) {(total, processor) =>
+    processors.values.asScala.foldLeft(0) { (total, processor) =>
       total + processor.responseQueueSize
     }
   })
@@ -346,7 +351,12 @@ class RequestChannel(val queueSize: Int, val metricNamePrefix : String, time: Ti
     requestQueue.put(request)
   }
 
-  /** Send a response back to the socket server to be sent over the network */
+  /**
+   * Send a response back to the socket server to be sent over the network
+   *
+   * 把待发送的 Response 对象添加到对应 Processor 线程的 Response 队列上，
+   * 然后交由 Processor 线程完成网络间的数据传输。
+   **/
   def sendResponse(response: RequestChannel.Response): Unit = {
 
     if (isTraceEnabled) {
@@ -462,10 +472,10 @@ class RequestMetrics(name: String) extends KafkaMetricsGroup {
   // Temporary memory allocated for processing request (only populated for fetch and produce requests)
   // This shows the memory allocated for compression/conversions excluding the actual request size
   val tempMemoryBytesHist =
-    if (name == ApiKeys.FETCH.name || name == ApiKeys.PRODUCE.name)
-      Some(newHistogram(TemporaryMemoryBytes, biased = true, tags))
-    else
-      None
+  if (name == ApiKeys.FETCH.name || name == ApiKeys.PRODUCE.name)
+    Some(newHistogram(TemporaryMemoryBytes, biased = true, tags))
+  else
+    None
 
   private val errorMeters = mutable.Map[Errors, ErrorMeter]()
   Errors.values.foreach(error => errorMeters.put(error, new ErrorMeter(name, error)))
@@ -485,7 +495,7 @@ class RequestMetrics(name: String) extends KafkaMetricsGroup {
       else {
         synchronized {
           if (meter == null)
-             meter = newMeter(ErrorsPerSec, "requests", TimeUnit.SECONDS, tags)
+            meter = newMeter(ErrorsPerSec, "requests", TimeUnit.SECONDS, tags)
           meter
         }
       }
