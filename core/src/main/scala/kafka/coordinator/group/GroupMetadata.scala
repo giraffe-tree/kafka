@@ -207,6 +207,7 @@ case class GroupSummary(state: String,
  * being materialized.
  *
  * 保存写入到位移主题中的消息的位移值，以及其他元数据信息。这个类的主要职责就是保存位移值
+ * todo: 这两个参数的含义?
  */
 case class CommitRecordMetadataAndOffset(appendedBatchOffset: Option[Long], offsetAndMetadata: OffsetAndMetadata) {
   def olderThan(that: CommitRecordMetadataAndOffset): Boolean = appendedBatchOffset.get < that.appendedBatchOffset.get
@@ -302,10 +303,12 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
 
   def add(member: MemberMetadata, callback: JoinCallback = null): Unit = {
     if (members.isEmpty)
+    // 就把该成员的procotolType设置为消费者组的protocolType
       this.protocolType = Some(member.protocolType)
 
     assert(groupId == member.groupId)
     assert(this.protocolType.orNull == member.protocolType)
+    // 确保该成员选定的分区分配策略与组选定的分区分配策略相匹配
     assert(supportsProtocols(member.protocolType, MemberMetadata.plainProtocolSet(member.supportedProtocols)))
 
     if (leaderId.isEmpty)
@@ -317,6 +320,11 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
       numMembersAwaitingJoin += 1
   }
 
+  /**
+   * 移除消费者组成员
+   *
+   * @param memberId 成员id
+   */
   def remove(memberId: String): Unit = {
     members.remove(memberId).foreach { member =>
       member.supportedProtocols.foreach { case (protocol, _) => supportedProtocols(protocol) -= 1 }
@@ -442,6 +450,7 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
     timeout.max(member.rebalanceTimeoutMs)
   }
 
+  // 生成 member id
   def generateMemberId(clientId: String,
                        groupInstanceId: Option[String]): String = {
     groupInstanceId match {
@@ -467,17 +476,27 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
         s"respond with instance fenced error")
       true
     } else
-      false
+        false
   }
 
   def canRebalance = PreparingRebalance.validPreviousStates.contains(state)
 
+  /**
+   * 设置/更新状态
+   *
+   * @param groupState 消费者组状态
+   */
   def transitionTo(groupState: GroupState): Unit = {
     assertValidTransition(groupState)
     state = groupState
     currentStateTimestamp = Some(time.milliseconds())
   }
 
+  /**
+   * 选出消费者组的分区消费分配策略。
+   *
+   * @return
+   */
   def selectProtocol: String = {
     if (members.isEmpty)
       throw new IllegalStateException("Cannot select protocol for empty group")
@@ -636,12 +655,18 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
     GroupOverview(groupId, protocolType.getOrElse(""), state.toString)
   }
 
+  /**
+   * 初始化
+   */
   def initializeOffsets(offsets: collection.Map[TopicPartition, CommitRecordMetadataAndOffset],
                         pendingTxnOffsets: Map[Long, mutable.Map[TopicPartition, CommitRecordMetadataAndOffset]]): Unit = {
     this.offsets ++= offsets
     this.pendingTransactionalOffsetCommits ++= pendingTxnOffsets
   }
 
+  /**
+   * 提交位移消息被成功写入后调用
+   */
   def onOffsetCommitAppend(topicPartition: TopicPartition, offsetWithCommitRecordMetadata: CommitRecordMetadataAndOffset): Unit = {
     if (pendingOffsetCommits.contains(topicPartition)) {
       if (offsetWithCommitRecordMetadata.appendedBatchOffset.isEmpty)
@@ -770,8 +795,22 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
 
   def removeExpiredOffsets(currentTimestamp: Long, offsetRetentionMs: Long): Map[TopicPartition, OffsetAndMetadata] = {
 
+    /**
+     * 用于获取订阅分区过期的位移值
+     *
+     * @param baseTimestamp    它是一个函数类型，接收 CommitRecordMetadataAndOffset 类型的字段，然后计算时间戳，并返回；
+     * @param subscribedTopics 订阅主题集合，默认是空。
+     * @return
+     */
     def getExpiredOffsets(baseTimestamp: CommitRecordMetadataAndOffset => Long,
                           subscribedTopics: Set[String] = Set.empty): Map[TopicPartition, OffsetAndMetadata] = {
+      // 1. 分区所属主题不在订阅主题列表之内。
+      // 2. 主题分区已经完成位移提交，那种处于提交中状态，也就是保存在 pendingOffsetCommits 字段中的分区，不予考虑。
+      // 3. 该主题分区在位移主题中对应消息的存在时间超过了阈值;
+      // 目前，新版 Kafka 判断过期与否，主要是基于消费者组状态。如果是 Empty 状态，过期的判断依据就是当前时间与组变为 Empty
+      // 状态时间的差值，是否超过 Broker 端参数 offsets.retention.minutes 值；如果不是 Empty 状态，就看当前时间与
+      // 提交位移消息中的时间戳差值是否超过了 offsets.retention.minutes 值。如果超过了，就视为已过期，
+
       offsets.filter {
         case (topicPartition, commitRecordMetadataAndOffset) =>
           !subscribedTopics.contains(topicPartition.topic()) &&

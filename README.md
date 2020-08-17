@@ -2,6 +2,9 @@
 >
 > 并基于该代码做了一些代码分析和解读
 
+关于源码环境搭建, 请参考 [Kafka源码环境搭建](https://blog.csdn.net/u013256816/article/details/78533725)
+
+
 Apache Kafka
 =================
 See our [web site](https://kafka.apache.org) for details on the project.

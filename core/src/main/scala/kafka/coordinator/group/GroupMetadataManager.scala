@@ -53,6 +53,17 @@ import scala.collection._
 import scala.collection.mutable.ArrayBuffer
 import scala.jdk.CollectionConverters._
 
+/**
+ * 消费者组管理器
+ * 用于管理消费者组
+ *
+ * @param brokerId                   broker id
+ * @param interBrokerProtocolVersion 位移主题协议版本, Broker端参数inter.broker.protocol.version值
+ * @param config                     内部位移主题配置类
+ * @param replicaManager             副本管理器类, 获取分区对象/写入分区消息
+ * @param zkClient                   zookeeper client 获取位移主题的分区数
+ */
+
 class GroupMetadataManager(brokerId: Int,
                            interBrokerProtocolVersion: ApiVersion,
                            config: OffsetConfig,
@@ -62,15 +73,22 @@ class GroupMetadataManager(brokerId: Int,
                            metrics: Metrics) extends Logging with KafkaMetricsGroup {
   // 向位移主题写入消息时, 执行压缩的类型
   private val compressionType: CompressionType = CompressionType.forId(config.offsetsTopicCompressionCodec.codec)
-  // 消费者组元数据容器，保存Broker管理的所有消费者组的数据
+  // 该字段是 GroupMetadataManager 类上最重要的属性，
+  // 它保存这个 Broker 上 GroupCoordinator 组件管理的所有消费者组元数据
+  // key 消费者组名称 , Value 是消费者组元数据，
+  // 源码通过该字段实现对消费者组的添加、删除和遍历操作。
   private val groupMetadataCache = new Pool[String, GroupMetadata]
 
   /* lock protecting access to loading and owned partition sets */
   private val partitionLock = new ReentrantLock()
   // 位移主题下正在执行加载操作的分区
-  /* partitions of consumer groups that are being loaded, its lock should be always called BEFORE the group lock if needed */
+  // 首先，这些分区都是位移主题分区，也就是 __consumer_offsets 主题下的分区；
+  // 其次，所谓的加载，是指读取位移主题消息数据，填充 GroupMetadataCache 字段的操作。
+  /* partitions of consumer groups that are being loaded, its lock should be always called
+  BEFORE the group lock if needed */
   private val loadingPartitions: mutable.Set[Int] = mutable.Set()
   // 位移主题下完成加载操作的分区
+  // 已经完成加载操作的分区。
   /* partitions of consumer groups that are assigned, using the same loading partition lock */
   private val ownedPartitions: mutable.Set[Int] = mutable.Set()
 
@@ -127,7 +145,9 @@ class GroupMetadataManager(brokerId: Int,
 
   recreateGauge("NumOffsets",
     () => groupMetadataCache.values.map { group =>
-      group.inLock { group.numOffsets }
+      group.inLock {
+        group.numOffsets
+      }
     }.sum
   )
 
@@ -182,9 +202,13 @@ class GroupMetadataManager(brokerId: Int,
 
   def currentGroups: Iterable[GroupMetadata] = groupMetadataCache.values
 
-  def isPartitionOwned(partition: Int) = inLock(partitionLock) { ownedPartitions.contains(partition) }
+  def isPartitionOwned(partition: Int) = inLock(partitionLock) {
+    ownedPartitions.contains(partition)
+  }
 
-  def isPartitionLoading(partition: Int) = inLock(partitionLock) { loadingPartitions.contains(partition) }
+  def isPartitionLoading(partition: Int) = inLock(partitionLock) {
+    loadingPartitions.contains(partition)
+  }
 
   def partitionFor(groupId: String): Int = Utils.abs(groupId.hashCode) % groupMetadataTopicPartitionCount
 
@@ -192,7 +216,9 @@ class GroupMetadataManager(brokerId: Int,
 
   def isGroupLoading(groupId: String): Boolean = isPartitionLoading(partitionFor(groupId))
 
-  def isLoading: Boolean = inLock(partitionLock) { loadingPartitions.nonEmpty }
+  def isLoading: Boolean = inLock(partitionLock) {
+    loadingPartitions.nonEmpty
+  }
 
   // return true iff group is owned and the group doesn't exist
   def groupNotExists(groupId: String) = inLock(partitionLock) {
@@ -311,6 +337,7 @@ class GroupMetadataManager(brokerId: Int,
 
           responseCallback(responseError)
         }
+
         appendForGroup(group, groupMetadataRecords, putCacheCallback)
 
       case None =>
@@ -697,7 +724,7 @@ class GroupMetadataManager(brokerId: Int,
         }
 
         val (pendingGroupOffsets, pendingEmptyGroupOffsets) = pendingOffsetsByGroup
-          .partition { case (group, _) => loadedGroups.contains(group)}
+          .partition { case (group, _) => loadedGroups.contains(group) }
 
         loadedGroups.values.foreach { group =>
           val offsets = groupOffsets.getOrElse(group.groupId, Map.empty[TopicPartition, CommitRecordMetadataAndOffset])
@@ -791,12 +818,13 @@ class GroupMetadataManager(brokerId: Int,
   }
 
   /**
-    * This function is used to clean up group offsets given the groups and also a function that performs the offset deletion.
-    * @param groups Groups whose metadata are to be cleaned up
-    * @param selector A function that implements deletion of (all or part of) group offsets. This function is called while
-    *                 a group lock is held, therefore there is no need for the caller to also obtain a group lock.
-    * @return The cumulative number of offsets removed
-    */
+   * This function is used to clean up group offsets given the groups and also a function that performs the offset deletion.
+   *
+   * @param groups   Groups whose metadata are to be cleaned up
+   * @param selector A function that implements deletion of (all or part of) group offsets. This function is called while
+   *                 a group lock is held, therefore there is no need for the caller to also obtain a group lock.
+   * @return The cumulative number of offsets removed
+   */
   def cleanupGroupMetadata(groups: Iterable[GroupMetadata], selector: GroupMetadata => Map[TopicPartition, OffsetAndMetadata]): Int = {
     var offsetsRemoved = 0
 
@@ -811,13 +839,13 @@ class GroupMetadataManager(brokerId: Int,
         (removedOffsets, group.is(Dead), group.generationId)
       }
 
-    val offsetsPartition = partitionFor(groupId)
-    val appendPartition = new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, offsetsPartition)
-    getMagic(offsetsPartition) match {
-      case Some(magicValue) =>
-        // We always use CREATE_TIME, like the producer. The conversion to LOG_APPEND_TIME (if necessary) happens automatically.
-        val timestampType = TimestampType.CREATE_TIME
-        val timestamp = time.milliseconds()
+      val offsetsPartition = partitionFor(groupId)
+      val appendPartition = new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, offsetsPartition)
+      getMagic(offsetsPartition) match {
+        case Some(magicValue) =>
+          // We always use CREATE_TIME, like the producer. The conversion to LOG_APPEND_TIME (if necessary) happens automatically.
+          val timestampType = TimestampType.CREATE_TIME
+          val timestamp = time.milliseconds()
 
           replicaManager.nonOfflinePartition(appendPartition).foreach { partition =>
             val tombstones = ArrayBuffer.empty[SimpleRecord]
@@ -921,7 +949,7 @@ class GroupMetadataManager(brokerId: Int,
   /*
    * Check if the offset metadata length is valid
    */
-  private def validateOffsetMetadataLength(metadata: String) : Boolean = {
+  private def validateOffsetMetadataLength(metadata: String): Boolean = {
     metadata == null || metadata.length() <= config.maxMetadataSize
   }
 
@@ -945,8 +973,8 @@ class GroupMetadataManager(brokerId: Int,
   /**
    * Check if the replica is local and return the message format version and timestamp
    *
-   * @param   partition  Partition of GroupMetadataTopic
-   * @return  Some(MessageFormatVersion) if replica is local, None otherwise
+   * @param   partition Partition of GroupMetadataTopic
+   * @return Some(MessageFormatVersion) if replica is local, None otherwise
    */
   private def getMagic(partition: Int): Option[Byte] =
     replicaManager.getMagic(new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, partition))
@@ -977,19 +1005,22 @@ class GroupMetadataManager(brokerId: Int,
 }
 
 /**
+ *
+ *
+ *
  * Messages stored for the group topic has versions for both the key and value fields. Key
  * version is used to indicate the type of the message (also to differentiate different types
  * of messages from being compacted together if they have the same field values); and value
  * version is used to evolve the messages within their data types:
  *
  * key version 0:       group consumption offset
- *    -> value version 0:       [offset, metadata, timestamp]
+ * -> value version 0:       [offset, metadata, timestamp]
  *
  * key version 1:       group consumption offset
- *    -> value version 1:       [offset, metadata, commit_timestamp, expire_timestamp]
+ * -> value version 1:       [offset, metadata, commit_timestamp, expire_timestamp]
  *
  * key version 2:       group metadata
- *    -> value version 0:       [protocol_type, generation, protocol, leader, members]
+ * -> value version 0:       [protocol_type, generation, protocol, leader, members]
  */
 object GroupMetadataManager {
   // Metrics names
@@ -1200,7 +1231,7 @@ object GroupMetadataManager {
    * Generates the payload for offset commit message from given offset and metadata
    *
    * @param offsetAndMetadata consumer's current offset and metadata
-   * @param apiVersion the api version
+   * @param apiVersion        the api version
    * @return payload for offset commit message
    */
   def offsetCommitValue(offsetAndMetadata: OffsetAndMetadata,
@@ -1244,8 +1275,8 @@ object GroupMetadataManager {
    * assuming the generation id, selected protocol, leader and member assignment are all available
    *
    * @param groupMetadata current group metadata
-   * @param assignment the assignment for the rebalancing generation
-   * @param apiVersion the api version
+   * @param assignment    the assignment for the rebalancing generation
+   * @param apiVersion    the api version
    * @return payload for offset commit message
    */
   def groupMetadataValue(groupMetadata: GroupMetadata,
@@ -1391,7 +1422,7 @@ object GroupMetadataManager {
    * Decodes the group metadata messages' payload and retrieves its member metadata from it
    *
    * @param buffer input byte-buffer
-   * @param time the time instance to use
+   * @param time   the time instance to use
    * @return a group metadata object from the message
    */
   def readGroupMessageValue(groupId: String, buffer: ByteBuffer, time: Time): GroupMetadata = {
@@ -1577,8 +1608,9 @@ case class GroupTopicPartition(group: String, topicPartition: TopicPartition) {
     "[%s,%s,%d]".format(group, topicPartition.topic, topicPartition.partition)
 }
 
-trait BaseKey{
+trait BaseKey {
   def version: Short
+
   def key: Any
 }
 
